@@ -13,31 +13,31 @@ class State:
     def __init__(self):
         self.time = 0
         self.endState = False
-        self.val = [0, 0]
+        self.val = 0
     
     def __hash__(self):
-        return hash((self.time, self.val[0], self.val[1]))
+        return hash((self.time, self.val))
     
     def __eq__(self, other):
         return self.time == other.time and self.val == other.val
     
     def __str__(self):
-        return str(self.time) + ' ' + str(self.val[0]) + ' ' + str(self.val[1])
+        return str(self.time) + ' ' + str(self.val[0])
 
     def copy(self):
         newState = State()
         newState.time = self.time
         newState.endState = self.endState
-        newState.val = self.val.copy()
+        newState.val = self.val
         return newState
     
     def getEndValue(self):
-        if self.val[0] > self.val[1]:
-            return -1
-        if self.val[0] == self.val[1]:
-            return 0
-        if self.val[0] < self.val[1]:
+        if self.val > 0:
             return 1
+        if self.val == 0:
+            return 0
+        if self.val < 0:
+            return -1
 
     def makeAction(self, actions):
         # returns all future states as well as the associated probabilities
@@ -48,9 +48,9 @@ class State:
             for i in range(self.NUM_AGENT):
                 prob *= self.spikeProb if c[i] == 1 else 1 - self.spikeProb
                 if actions[i] == 0:
-                    newState.val[i] += self.SAFE
+                    newState.val += self.SAFE * (2*i-1)
                 else:
-                    newState.val[i] += c[i] * self.SPIKE
+                    newState.val += c[i] * self.SPIKE * (2*i-1)
             newState.time += 1
             if newState.time == self.TIME_HORIZON:
                 newState.endState = True

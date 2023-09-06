@@ -3,6 +3,7 @@ from race import *
 from nash import *
 import matplotlib.pyplot as plt
 from matplotlib import colors
+import matplotlib as mpl
 
 class MG:
     def __init__(self):
@@ -61,35 +62,56 @@ a = MG()
 # while True:
 #     a.play()
 
-def plot(T):
-    maxSize = 40
+maxSize = 50
 
-    data = np.zeros(shape=(maxSize, maxSize))
+def plot_policy():
+    data = np.zeros(shape=(State.TIME_HORIZON, 2*maxSize))
 
-    for i in range(maxSize):
-        for j in range(maxSize):
+    for i in range(State.TIME_HORIZON):
+        for j in range(2*maxSize):
             data[i][j] = -1
             s = State()
-            s.time = T
-            s.val = [i, j]
+            s.time = i
+            s.val = j-maxSize
             if s in a.store:
-                p1, _, _ = a.store[s]
+                _, p1, v = a.store[s]
                 data[i][j] = p1[1]
-
+                if abs(v-1) < 1e-07 or abs(v+1) < 1e-07:
+                    data[i][j] = 2
+    
     # create discrete colormap
-    cmap = colors.ListedColormap(['white', 'red', 'lightcoral', 'grey', 'black'])
-    bounds = [-1, -0.01, 0.01, 0.5, 0.99, 1]
+    cmap = colors.ListedColormap(['white', 'red', 'lightcoral', 'grey', 'black', 'blue'])
+    bounds = [-1, -0.001, 0.001, 0.5, 0.999, 1.001, 2]
     norm = colors.BoundaryNorm(bounds, cmap.N)
 
-    fig, ax = plt.subplots()
-    ax.imshow(data, cmap=cmap, norm=norm)
+    fig, ax = plt.subplots(figsize=(6,6))
 
-    # draw gridlines
-    ax.grid(which='major', axis='both', linestyle='-', color='k', linewidth=1)
-    ax.set_xticks(np.arange(-.5, maxSize, 1));
-    ax.set_yticks(np.arange(-.5, maxSize, 1));
+    ax.imshow(data, cmap=cmap, norm=norm, interpolation='none', extent=[-maxSize*10,maxSize*10,10,0])
+    ax.set_aspect(40) # you may also use am.imshow(..., aspect="auto") to restore the aspect ratio
 
-    plt.savefig("policy" + str(T) + ".png")
+    plt.savefig("policy.png")
 
-for i in range(State.TIME_HORIZON):
-    plot(i)
+def plot_value():
+    data = np.zeros(shape=(State.TIME_HORIZON, 2*maxSize))
+
+    for i in range(State.TIME_HORIZON):
+        for j in range(2*maxSize):
+            data[i][j] = -1
+            s = State()
+            s.time = i
+            s.val = j-maxSize
+            if s in a.store:
+                _, _, v = a.store[s]
+                data[i][j] = (v+1)/2
+
+    cmap = mpl.colormaps['magma']
+
+    fig, ax = plt.subplots(figsize=(6,6))
+
+    ax.imshow(data, cmap=cmap, interpolation='none', extent=[-maxSize*10,maxSize*10,10,0])
+    ax.set_aspect(40)
+
+    plt.savefig("value.png")
+
+plot_policy()
+plot_value()
