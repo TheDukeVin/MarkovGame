@@ -31,11 +31,6 @@ def initDist():
 def oppDist(type):
     return initDist()
 
-def sign(x):
-    if x > 0: return 1
-    if x == 0: return 0
-    return -1
-
 class State:
     NUM_AGENT = 2 # Agent 0 is minimizer, agent 1 maximizer
     NUM_ACTION = 2*N # 0-(2N-2) is bet of that amount. 2N-1 is sell

@@ -4,7 +4,7 @@ from PG import *
 N = 4
 
 class Type:
-    def __init__(self, val):
+    def __init__(self, val=None):
         self.val = val
     
     def __hash__(self):
@@ -60,7 +60,7 @@ class State:
     
     def __str__(self):
         return str(self.actionHist)
-
+    
     def copy(self):
         newState = State()
         newState.time = self.time
