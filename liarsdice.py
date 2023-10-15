@@ -86,7 +86,8 @@ class State:
                 count += 1
             if types[1].val == betVal:
                 count += 1
-        return ((count >= betQuan)*2-1) * (self.currPlayer*2-1)
+        posVal =  ((count >= betQuan)*2-1) * (self.currPlayer*2-1)
+        return [-posVal, posVal]
 
     def getValidActions(self):
         actions = []

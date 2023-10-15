@@ -1,6 +1,9 @@
 
 import pickle
 import time
+import matplotlib.pyplot as plt
+from matplotlib import colors
+import matplotlib as mpl
 
 from nash import *
 
@@ -8,32 +11,40 @@ from nash import *
 # from dicesum import *
 from liarsdice import *
 
-"""
-rsync -r MarkovGame kevindu@login.rc.fas.harvard.edu:./MultiagentSnake
-rsync -r kevindu@login.rc.fas.harvard.edu:./MultiagentSnake/LSTM/net.out MarkovGame
-"""
-
 class Policy:
-    def __init__(self):
+    def __init__(self, agentID):
         self.actionDist = {}
         for s in ALL_STATES():
+            if s.endState or s.currPlayer != agentID: continue
             self.actionDist[s] = {}
             for t in ALL_TYPES():
                 self.actionDist[s][t] = [0] * State.NUM_ACTION
                 for a in s.getValidActions():
                     self.actionDist[s][t][a] = 1.0 / len(s.getValidActions())
     
-    def copy(self):
-        p = Policy()
-        for s in ALL_STATES():
+    # def copy(self):
+    #     p = Policy(self.agentID)
+    #     for s in self.actionDist:
+    #         for t in ALL_TYPES():
+    #             for a in s.getValidActions():
+    #                 p.actionDist[s][t][a] = self.actionDist[s][t][a]
+    #     return p
+    
+    def copy(self, other):
+        for s in other.actionDist:
             for t in ALL_TYPES():
                 for a in s.getValidActions():
-                    p.actionDist[s][t][a] = self.actionDist[s][t][a]
-        return p
+                    self.actionDist[s][t][a] = other.actionDist[s][t][a]
+    
+    def resetGradient(self):
+        for s in self.actionDist:
+            for t in ALL_TYPES():
+                for a in s.getValidActions():
+                    self.actionDist[s][t][a] = 0
     
     def __str__(self):
         output = ""
-        for s in ALL_STATES():
+        for s in self.actionDist:
             output += "STATE: " + str(s) + "\n"
             for t in ALL_TYPES():
                 output += "Type: " + str(t) + "\nAction: " + str(self.actionDist[s][t]) + "\n"
@@ -67,122 +78,102 @@ def getOppType(type):
     index = np.random.choice(len(types), p=prob)
     return types[index]
 
-PSRO_MODE = "PSRO_MODE"
-FICT_MODE = "FICT_MODE"
-
-learnRate = 0.02
+class Match:
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+    
+    def __hash__(self):
+        return hash((self.a, self.b))
+    
+    def __eq__(self, other):
+        return (self.a, self.b) == (other.a, other.b)
 
 class PSRO:
     def __init__(self):
-        self.best = Policy()
-        self.N = 1
-        self.returnPolicies = [None, None]
-        self.mode = FICT_MODE
-        if self.mode == PSRO_MODE:
-            self.policyBase = []
-            for i in range(State.NUM_AGENT):
-                self.policyBase.append([Policy()])
-            self.mixture = Policy()
-            self.valueMatch = [[0]]
-        else:
-            self.policies = [Policy(), Policy()]
-            self.lastExploit = 0
+        pass
     
-    def getMixture(self, policies, mixture):
-        for s in ALL_STATES():
+    def runPSRO(self, starting_queue, numIter, return_size):
+        # self.policyQueue = []
+        # for i in range(State.NUM_AGENT):
+        #     self.policyQueue.append([starting_policy[i]])
+        # self.matchVals = {Match(0, 0) : self.match(starting_policy)}
+        self.policyQueue = starting_queue
+        self.matchVals = {}
+        self.returnPolicy = [[], []]
+        start_time = time.time()
+        self.fillMatch()
+        for i in range(numIter):
+            self.iterate(i >= numIter - return_size)
+            print("Step " + str(i) + " TIME STAMP: " + str(time.time() - start_time))
+    
+    def iterate(self, submit=False):
+        assert State.NUM_AGENT == 2
+        nash = self.computeNash()
+        # print(nash)
+
+        responses = []
+        vals = []
+        for i in range(2):
+            mix = self.getMixture(self.policyQueue[i], nash[i], i)
+            response, val = self.getBestResponse(mix, 1-i)
+            responses.append(response)
+            vals.append(val)
+            if submit:
+                self.returnPolicy[i].append(mix)
+        self.policyQueue[0].append(responses[1])
+        self.policyQueue[1].append(responses[0])
+        self.fillMatch()
+        # added_nash = self.computeNash()
+        # for i in range(2):
+        #     mix = self.getMixture(self.policyQueue[i], added_nash[i], i)
+        #     self.policyQueue[i][-1] = mix
+        # self.fillMatch()
+        print("Exploitability: " + str(vals))
+
+    def fillMatch(self):
+        # N = len(self.policyQueue[0])
+        # for i in range(0, N):
+        #     self.matchVals[Match(i, N-1)] = self.match([self.policyQueue[0][i], self.policyQueue[1][N-1]])
+        #     if i != N-1:
+        #         self.matchVals[Match(N-1, i)] = self.match([self.policyQueue[0][N-1], self.policyQueue[1][i]])
+        for i in range(0, len(self.policyQueue[0])):
+            for j in range(0, len(self.policyQueue[0])):
+                if Match(i, j) not in self.matchVals:
+                    self.matchVals[Match(i, j)] = self.match([self.policyQueue[0][i], self.policyQueue[1][j]])
+    
+    def getPayoff(self):
+        N = len(self.policyQueue[0])
+        payoff = np.zeros((N, N))
+        for i in range(N):
+            for j in range(N):
+                payoff[i][j] = self.matchVals[Match(i, j)]
+        return payoff
+
+    def computeNash(self):
+        p1, p2, _ = getNash(self.getPayoff())
+        return [p1, p2]
+    
+    def getMixture(self, policies, dist, agentID):
+        mix = Policy(agentID)
+        for s in mix.actionDist:
             for t in ALL_TYPES():
                 for a in s.getValidActions():
                     sum = 0
-                    for i in range(len(mixture)):
-                        sum += policies[i].actionDist[s][t][a] * mixture[i]
-                    self.mixture.actionDist[s][t][a] = sum
-
+                    for i in range(len(policies)):
+                        sum += policies[i].actionDist[s][t][a] * dist[i]
+                    mix.actionDist[s][t][a] = sum
+        return mix
     
-    def bestMixtureResponse(self, agentID, policies, mixture):
-        self.getMixture(policies, mixture)
-        val = self.bestResponse(agentID, self.mixture)
-        return val, self.best.copy()
-    
-    def incPolicy(self, agentID, policy):
-        for s in ALL_STATES():
-            for t in ALL_TYPES():
-                for a in s.getValidActions():
-                    self.policies[agentID].actionDist[s][t][a] += (policy.actionDist[s][t][a] - self.policies[agentID].actionDist[s][t][a]) * (learnRate * self.lastExploit)
-    
-    def iterate(self):
-        if self.mode == PSRO_MODE:
-            mix0, mix1, _ = getNash(np.array(self.valueMatch))
-            # print(self.valueMatch)
-            val0, best0 = self.bestMixtureResponse(0, self.policyBase[1], mix1)
-            val1, best1 = self.bestMixtureResponse(1, self.policyBase[0], mix0)
-            self.policyBase[0].append(best0)
-            self.policyBase[1].append(best1)
-            for i in range(self.N):
-                self.valueMatch[i].append(0)
-            self.valueMatch.append([0] * (self.N + 1))
-            self.N += 1
-            for i in range(self.N):
-                for j in range(self.N):
-                    if i < self.N-1 and j < self.N-1:
-                        continue
-                    match_pol = [self.policyBase[0][i], self.policyBase[1][j]]
-                    self.valueMatch[i][j] = self.match(match_pol)
-        else:
-            val0 = self.bestResponse(0, self.policies[1])
-            P0 = self.best.copy()
-            val1 = self.bestResponse(1, self.policies[0])
-            print((val0, val1))
-            P1 = self.best.copy()
-            self.incPolicy(0, P0)
-            self.incPolicy(1, P1)
-            self.lastExploit = val1 - val0
-            self.N += 1
-
-        return self.lastExploit
-    
-    def runPSRO(self, numIter):
-        start_time = time.time()
-        for i in range(numIter):
-            exploitability = self.iterate()
-            if i%10 == 0:
-                print("Step: " + str(i) + " Exploitability: " + str(exploitability) + " Time Stamp: " + str(time.time() - start_time))
-            if exploitability < 1e-07:
-                break
-        if self.mode == PSRO_MODE:
-            mix0, mix1, _ = getNash(np.array(self.valueMatch))
-            self.getMixture(self.policyBase[0], mix0)
-            self.returnPolicies[0] = self.mixture.copy()
-            self.getMixture(self.policyBase[1], mix1)
-            self.returnPolicies[1] = self.mixture.copy()
-        else:
-            self.returnPolicies[0] = self.policies[0].copy()
-            self.returnPolicies[1] = self.policies[1].copy()
-
-    def match(self, policies):
-        sum = 0
-        for t0, p0 in initDist().items():
-            for t1, p1 in oppDist(t0).items():
-                sum += p0 * p1 * self.matchRec(policies, State(), [t0, t1])
-        return sum
-    
-    def matchRec(self, policies, s : State, types) -> float:
-        if s.endState:
-            return s.getEndValue(types)
-        sum = 0
-        for a in s.getValidActions():
-            new_s = s.copy()
-            new_s.makeAction(a)
-            sum += policies[s.currPlayer].actionDist[s][types[s.currPlayer]][a] * self.matchRec(policies, new_s, types)
-        return sum
-    
-    def bestResponse(self, agentID, otherPolicy):
+    def getBestResponse(self, adv, agentID):
+        response = Policy(agentID)
         sum = 0
         for t, p in initDist().items():
-            val = self.bestResponseRec(agentID, State(), t, otherPolicy, oppDist(t))
+            val = self.bestResponseRec(agentID, State(), t, adv, response, oppDist(t))
             sum += p * val
-        return sum
+        return response, sum
     
-    def bestResponseRec(self, agentID, s : State, t : Type, otherPolicy : Policy, oppType):
+    def bestResponseRec(self, agentID, s : State, t : Type, otherPolicy : Policy, response : Policy, oppType):
         # Calculates best response, updates self.best
         # Returns value of best response
 
@@ -193,34 +184,26 @@ class PSRO:
                 types = [None] * 2
                 types[agentID] = t
                 types[1-agentID] = ot
-                sum += p * s.getEndValue(types)
+                sum += p * s.getEndValue(types)[agentID]
             return sum
         if s.currPlayer == agentID:
-            # AGENT 0 MINIMIZES, AGENT 1 MAXIMIZES
-            # here, scale maxVal as value for each player
             maxVal = -1e+07
             bestAction = -1
             for a in s.getValidActions():
                 new_s = s.copy()
                 new_s.makeAction(a)
-                candVal = self.bestResponseRec(agentID, new_s, t, otherPolicy, oppType) * (agentID*2-1)
+                candVal = self.bestResponseRec(agentID, new_s, t, otherPolicy, response, oppType)
                 if maxVal < candVal:
                     maxVal = candVal
                     bestAction = a
-                self.best.actionDist[s][t][a] = 0
-            self.best.actionDist[s][t][bestAction] = 1
-            maxVal *= (agentID*2-1)
+                response.actionDist[s][t][a] = 0
+            response.actionDist[s][t][bestAction] = 1
             return maxVal
         newOppType = {}
         for ot in oppType:
             newOppType[ot] = -1
         sum = 0
         for a in s.getValidActions():
-            action_prob = 0
-            for ot, p in oppType.items():
-                action_prob += otherPolicy.actionDist[s][ot][a] * p
-            if action_prob < 1e-07:
-                continue
             new_s = s.copy()
             new_s.makeAction(a)
             # Update distribution for opponent's type using Bayes' rule
@@ -228,41 +211,65 @@ class PSRO:
             for ot in oppType:
                 newOppType[ot] = oppType[ot] * otherPolicy.actionDist[s][ot][a]
                 bayesScale += newOppType[ot]
+            if bayesScale < 1e-07:
+                continue
             assert bayesScale > 1e-07
             for ot in oppType:
                 newOppType[ot] /= bayesScale
-            sum += action_prob * self.bestResponseRec(agentID, new_s, t, otherPolicy, newOppType)
+            sum += bayesScale * self.bestResponseRec(agentID, new_s, t, otherPolicy, response, newOppType)
         return sum
     
-    def play(self, reveal=False):
-        s = State()
-        t0 = getType()
-        t1 = getOppType(t0)
-        print("Your type: " + str(t1))
-        if reveal:
-            print("Opponent type: " + str(t0))
-        for i in range(State.TIME_HORIZON):
-            print("State " + str(s))
-            if s.currPlayer == 0:
-                if reveal:
-                    print("Opponent policy: " + str(self.returnPolicies[0].actionDist[s][t0]))
-                a = np.random.choice(State.NUM_ACTION, p=self.returnPolicies[0].actionDist[s][t0])
-            else:
-                if reveal:
-                    print("Your policy: " + str(self.returnPolicies[1].actionDist[s][t1]))
-                while True:
-                    try:
-                        a = int(input("Enter Action: "))
-                        if a in s.getValidActions():
-                            break
-                    except ValueError:
-                        pass
-                    print("Please enter valid action, i.e. 0 to " + str(State.NUM_ACTION-1))
-            s.makeAction(a)
-            print("Action " + str(a))
-            if s.endState:
-                break
-        print("State " + str(s))
-        print("Opponent type " + str(t0))
-        print("Value " + str(s.getEndValue([t0, t1])))
-        return s.getEndValue([t0, t1])
+    def match(self, policies):
+        sum = 0
+        for t0, p0 in initDist().items():
+            for t1, p1 in oppDist(t0).items():
+                sum += p0 * p1 * self.matchRec(policies, State(), [t0, t1])
+        return sum
+    
+    def matchRec(self, policies, s : State, types) -> float:
+        if s.endState:
+            return s.getEndValue(types)[1] # Agent 1 is maximizing.
+        sum = 0
+        for a in s.getValidActions():
+            action_prob = policies[s.currPlayer].actionDist[s][types[s.currPlayer]][a]
+            if action_prob < 1e-07:
+                continue
+            new_s = s.copy()
+            new_s.makeAction(a)
+            sum += action_prob * self.matchRec(policies, new_s, types)
+        return sum
+
+class IterPSRO:
+    def __init__(self):
+        self.psro = PSRO()
+    
+    def runIterPSRO(self, numIter, numPSRO):
+        policy = [[Policy(0)], [Policy(1)]]
+        for i in range(numIter):
+            print("################# RUNNING PSRO ITERATION ####################")
+            self.psro.runPSRO(policy, numPSRO, 5)
+            policy = self.psro.returnPolicy
+
+trainer = IterPSRO()
+trainer.runIterPSRO(1, 300)
+
+with open("psro.pickle", 'wb') as f:
+    pickle.dump(trainer, f, pickle.HIGHEST_PROTOCOL)
+
+# trainer = PSRO()
+# trainer.runPSRO([Policy(0), Policy(1)], 30)
+
+# size = len(trainer.getPayoff())
+# data = np.array(trainer.getPayoff())
+
+# cmap = mpl.colormaps['bwr']
+
+# # fig, ax = plt.subplots(figsize=(6,6))
+
+# plt.imshow(data, cmap=cmap, interpolation='none', extent=[0, size, size, 0])
+# plt.colorbar()
+# plt.xlabel("Active agent number")
+# plt.ylabel("Adversary agent number")
+# plt.title("Active reward")
+
+# plt.savefig("eval.png")

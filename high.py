@@ -33,6 +33,8 @@ def oppDist(type):
     for i in range(0, N):
         if i != type.val:
             dist[Type(i)] = 1.0 / (N-1)
+        else:
+            dist[Type(i)] = 0
     return dist
 
 def sign(x):
@@ -69,12 +71,15 @@ class State:
         newState.actionHist = list(self.actionHist)
         return newState
     
-    def getEndValue(self, types):
+    def getEndValue(self, types : list[Type]):
+        posVal = 0
         if self.actionHist[0] == 0:
-            return sign(types[1].val - types[0].val)
+            posVal = sign(types[1].val - types[0].val)
         elif self.actionHist[1] == 0:
-            return -1
-        return 2 * sign(types[1].val - types[0].val)
+            posVal = -1
+        else:
+            posVal = 2 * sign(types[1].val - types[0].val)
+        return [-posVal, posVal]
 
     def getValidActions(self):
         return [0, 1]
